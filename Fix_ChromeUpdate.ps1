@@ -120,7 +120,7 @@ if (($null -ne $chrome) -and ($result -eq 0)) {
                 # Check if the installation/upgrade was successful
                 if ($exitCode -eq 0) {
                     Write-Host "Winget Google Chrome installation/upgrade completed successfully."
-                    $detectSummary += "Chrome successfull Winget update. "
+                    $detectSummary += "Chrome successful Winget update. "
                     $result = 0
                 }
                 # If installed version not compatible with update then use Google Update.exe, just for that case.
@@ -129,11 +129,22 @@ if (($null -ne $chrome) -and ($result -eq 0)) {
                     Write-Host "Trying update with GoogleUpdate.exe"
 
                     if (Test-Path $googleUpdateExe) {
-                        $detectSummary += "Trying with GoogleUpdate.exe. "
+                        $detectSummary += "Trying w/GoogleUpdate.exe. "
 
                         try {
-                        # Run GoogleUpdate.exe with arguments to update Chrome
-                        Start-Process -FilePath $googleUpdateExe -ArgumentList "/update", "appguid={8A69D345-D564-463c-AFF1-A69D9E530F96}" -NoNewWindow -Wait -PassThru
+                            # Run GoogleUpdate.exe with arguments to update Chrome
+                            $processResult = Start-Process -FilePath $googleUpdateExe -ArgumentList "/update", "appguid={8A69D345-D564-463c-AFF1-A69D9E530F96}" -NoNewWindow -Wait -PassThru
+                            
+                            $exitCode = $processResult.ExitCode
+                            Write-Host "GUpdate Exit Code: $exitCode"
+
+                            # Check if sucessful upgrade with Gupdate.
+                            if ($exitCode -eq 0) {
+                                Write-Host "GoogleUpdate.exe upgraded successfully."
+                                $detectSummary += "Chrome successful Gupdate. "
+                                $result = 0
+                            }
+
                         }
                         catch {
                             $detectSummary += "Error trying update with GoogleUpdate.exe. "
