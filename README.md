@@ -20,7 +20,7 @@
         <li>Monitor the script execution status and results in the Microsoft Endpoint Manager admin center.</li>
     </ol>
     
-   <p>Managing Google Chrome updates in a client's environment can be a headache, this PowerShell can help. Give it a try and let me know your thoughts, comments and/or feedback!</p>
+<p>Managing Google Chrome updates in a client's environment can be a headache, this PowerShell can help. Give it a try and let me know your thoughts, comments and/or feedback!</p>
 
 
 
