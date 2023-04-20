@@ -14,8 +14,6 @@
 $Error.Clear()
 $detectSummary = ""
 $result = 0
-$programW6432 = $env:ProgramW6432
-$programX86 = ${env:ProgramFiles(x86)}
 
 #To make it easier to read in AgentExecutor Log.
 Write-Host `n`n
@@ -29,15 +27,18 @@ function Find-GoogleUpdateExe {
         [string]$chromeInstallLocation
     )
 
+    $programW6432 = $env:ProgramW6432
+    $programX86 = ${env:ProgramFiles(x86)}
+
     $googleUpdateExe = [System.IO.Path]::GetFullPath((Join-Path -Path $chromeInstallLocation -ChildPath "..\..\Update\GoogleUpdate.exe"))
 
     if (-not(Test-Path $googleUpdateExe)) {
 
         # GoogleUpdate.exe not found, check if $originalPath, lets try to find it in $programW6432 and $programX86.
-        #   This part necessary for environments with multiple OS languages. 
-        #   Tries to find GoogleUpdate.exe in based on environment variable "ProgramW6432" and "ProgramFiles(x86)."
+        #   This part necessary for environments with multiple OS languages. Actually... Do I really need this? not completely sure. 
+        #   Tries to find GoogleUpdate.exe in paths based on environment variables "ProgramW6432" and "ProgramFiles(x86)."
         # Define a list of environment variables to try
-        $envVariables = @('ProgramW6432', 'ProgramFiles(x86)')
+        $envVariables = @($ProgramW6432, $ProgramX86)
         $googleUpdateExe = $null
 
         foreach ($envVar in $envVariables) {
@@ -209,13 +210,19 @@ if (($null -ne $chrome) -and ($result -ne 1)) {
                             # Check if sucessful upgrade with Gupdate.
                             if ($exitCode -eq 0) {
                                 Write-Host "GoogleUpdate.exe upgraded successfully."
-                                $detectSummary += "Chrome successful Gupdate. "
+                                $detectSummary += "Gupdate successful. "
                                 $result = 0
+                            }
+                            else {
+                                Write-Host "GoogleUpdate.exe error upgrading."
+                                $detectSummary += "Gupdate error. "
+                                $result = 1
                             }
 
                         }
                         catch {
                             $detectSummary += "Error trying update with GoogleUpdate.exe. "
+                            $result = 1
                         }
                         
                     }
