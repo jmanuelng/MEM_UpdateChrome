@@ -21,6 +21,41 @@ Write-Host `n`n
 #endregion Settings
 
 #region Funcitions
+
+function Get-ChromeExeDetails {
+    $chromePaths = [System.IO.Path]::Combine($env:ProgramW6432, "Google\Chrome\Application\chrome.exe"),
+                   [System.IO.Path]::Combine(${env:ProgramFiles(x86)}, "Google\Chrome\Application\chrome.exe")
+    $registryPaths = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Google Chrome", "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Google Chrome"
+
+    $installedPath = $chromePaths | Where-Object { Test-Path $_ }
+    if ($installedPath) {
+        $chromeDetails = New-Object PSObject -Property @{
+            InstallLocation = $installedPath
+            DisplayVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($installedPath)
+        }
+        return $chromeDetails
+    }
+
+    $registryInstalled = $registryPaths | Where-Object { Get-ItemProperty -Path $_ -ErrorAction SilentlyContinue }
+    if ($registryInstalled) {
+        $chromeRegistryPath = $registryInstalled | ForEach-Object { Get-ItemProperty -Path $_ }
+        foreach ($registryPath in $chromeRegistryPath) {
+            if ($registryPath.InstallLocation) {
+                $chromeDetails = New-Object PSObject -Property @{
+                    InstallLocation = [System.IO.Path]::GetFullPath((Join-Path -Path $registryPath.InstallLocation -ChildPath "..\Application\chrome.exe"))
+                    DisplayVersion = $registryPath.DisplayVersion
+                }
+                if (Test-Path $chromeDetails.InstallLocation) {
+                    return $chromeDetails
+                }
+            }
+        }
+    }
+
+    return $null
+}
+
+
 function Find-GoogleUpdateExe {
     param (
         [Parameter(Mandatory=$true)]
@@ -98,7 +133,7 @@ else {
 }
 
 # Check if Google Chrome is installed
-$chrome = Get-ItemProperty "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Google Chrome" -ErrorAction SilentlyContinue
+$chrome = Get-ChromeExeDetails
 
 # If Google Chrome is installed and no previous important errors occurred
 if (($null -ne $chrome) -and ($result -ne 1)) {
