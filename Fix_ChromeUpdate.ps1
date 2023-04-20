@@ -31,7 +31,7 @@ function Get-ChromeExeDetails {
     if ($installedPath) {
         $chromeDetails = New-Object PSObject -Property @{
             InstallLocation = $installedPath
-            DisplayVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($installedPath)
+            DisplayVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($installedPath).FileVersion
         }
         return $chromeDetails
     }
@@ -64,8 +64,20 @@ function Find-GoogleUpdateExe {
 
     $programW6432 = $env:ProgramW6432
     $programX86 = ${env:ProgramFiles(x86)}
+    # Define the file name to search for
+    $googleUpdateExeFile = "GoogleUpdate.exe"
 
-    $googleUpdateExe = [System.IO.Path]::GetFullPath((Join-Path -Path $chromeInstallLocation -ChildPath "..\..\Update\GoogleUpdate.exe"))
+    $googleUpdateExePath = [System.IO.Path]::GetFullPath((Join-Path -Path $chromeInstallLocation -ChildPath "..\..\..\"))
+    $googleUpdateExe = [System.IO.Path]::GetFullPath((Join-Path -Path $googleUpdateExePath -ChildPath $googleUpdateExeFile))
+
+    # Search for the file in the current directory and all its subdirectories
+    $googleUpdateExefound = Get-ChildItem -Path $googleUpdateExePath -Filter $googleUpdateExeFile -Recurse -ErrorAction SilentlyContinue -Force
+
+    # Check if the file is found.
+    if ($googleUpdateExefound) {
+        $googleUpdateExe = $googleUpdateExefound[0].FullName
+    } 
+
 
     if (-not(Test-Path $googleUpdateExe)) {
 
@@ -77,11 +89,12 @@ function Find-GoogleUpdateExe {
         $googleUpdateExe = $null
 
         foreach ($envVar in $envVariables) {
-            $envValue = Get-Content "env:$envVar"
+            $envValue = $envVar.ToString()
+            $googleUpdateExePathStr = $googleUpdateExePath.ToString()
         
-            if (-not $googleUpdateExe.StartsWith($envValue)) {
+            if (-not($googleUpdateExePathStr -like $envValue)) {
                 # Split the original path by the first backslash after the drive letter
-                $pathParts = $googleUpdateExe -split '\\', 3
+                $pathParts = $googleUpdateExePathStr -split '\\', 3
         
                 # Replace the second part of the path (Program Files) with the value of the current environment variable
                 $pathParts[1] = $envValue.Trim("C:\")
@@ -89,9 +102,16 @@ function Find-GoogleUpdateExe {
                 # Join the parts of the path back together
                 $potentialGUpdate = Join-Path $pathParts[0] -ChildPath ($pathParts[1..($pathParts.Length - 1)] -join '\')
                 
+                # Go search for GoogleUpdate.exe in this path
+                $googleUpdateExe = Get-ChildItem -Path $potentialGUpdate -Filter $googleUpdateExeFile -Recurse -ErrorAction SilentlyContinue -Force
+
                 # If GoogleUpdate.exe is found, break the loop
-                if (Test-Path $potentialGUpdate) {
-                    $googleUpdateExe = $potentialGUpdate
+                # Check if the file is found.
+                if ($googleUpdateExe) {
+                    $googleUpdateExe = $googleUpdateExe[0].FullName
+                } 
+
+                if (Test-Path $googleUpdateExe) {
                     break
                 }
             }
@@ -101,13 +121,43 @@ function Find-GoogleUpdateExe {
             Write-Host "GoogleUpdate.exe not found."
             return $null
         } else {
-            Write-Host "GoogleUpdate.exe found at $googleUpdateExe."
+            Write-Host "GoogleUpdate.exe found at: $googleUpdateExe."
             return $googleUpdateExe
         }
     } else {
-        Write-Host "GoogleUpdate.exe found at $googleUpdateExe."
+        Write-Host "GoogleUpdate.exe found at: $googleUpdateExe."
         return $googleUpdateExe
     }
+}
+
+function GUpdate {
+
+    try {
+        # Run GoogleUpdate.exe with arguments to update Chrome
+        $gUpdateExe = "C:\Path\To\GoogleUpdate.exe"
+        $processResult = Start-Process -FilePath $gUpdateExe -ArgumentList "/c" -NoNewWindow -Wait -PassThru
+        
+        $exitCode = $processResult.ExitCode
+        Write-Host "GUpdate Exit Code: $exitCode"
+
+        # Check if successful upgrade with Gupdate
+        if ($exitCode -eq 0) {
+            Write-Host "GoogleUpdate.exe upgraded successfully."
+            $result = 0
+        }
+        else {
+            Write-Host "GoogleUpdate.exe error upgrading."
+            $result = 1
+        }
+
+    }
+    catch {
+        $detectSummary += "Error trying update with GoogleUpdate.exe. "
+        $result = 1
+    }
+
+    return $result
+    
 }
 
 #endregion Functions
@@ -151,40 +201,48 @@ if (($null -ne $chrome) -and ($result -ne 1)) {
     }
 
 
-    # Get the latest version of Google Chrome from Winget repository
-    try {
-        # Search for Google Chrome in the repository and parse its version number...
-        #    the complicated version as it will run in system context.
+    # Get the latest version of Google Chrome from Winget repository (if Winget exists)
+    if ($wingetPath){
+        try {
+            # Search for Google Chrome in the repository and parse its version number...
+            #    the complicated version as it will run in system context.
 
-        # Create a temporary file to store the output of the winget command
-        $tempFile = New-TemporaryFile
+            # Create a temporary file to store the output of the winget command
+            $tempFile = New-TemporaryFile
 
-        # Execute the winget command using Start-Process, redirect output to the temporary file,
-        # process is executed without creating a new window (-NoNewWindow), script waits (-Wait)
-        Start-Process -FilePath "$wingetPath" -ArgumentList "search --id ""Google.Chrome"" --exact" -NoNewWindow -Wait -RedirectStandardOutput $tempFile.FullName
-        # Read the contents of the temporary file into the $output variable
-        $latestChrome = Get-Content $tempFile.FullName
-        # Remove the temporary file as it is no longer needed
-        Remove-Item $tempFile.FullName
+            # Execute the winget command using Start-Process, redirect output to the temporary file,
+            # process is executed without creating a new window (-NoNewWindow), script waits (-Wait)
+            Start-Process -FilePath "$wingetPath" -ArgumentList "search --id ""Google.Chrome"" --exact" -NoNewWindow -Wait -RedirectStandardOutput $tempFile.FullName
+            # Wait 10 seconds, found, after multiple test, thet when run the first time it does take a bit more of time.
+            Start-Sleep -Seconds 10 
+            # Read the contents of the temporary file into the $output variable
+            $latestChrome = Get-Content $tempFile.FullName
+            # Remove the temporary file as it is no longer needed
+            Remove-Item $tempFile.FullName
 
-        # Find pattern in $latestChrome and store the result in the same variable
-        # The updated pattern will now look for a version number with at least one dot
-        $latestChrome = $latestChrome | Select-String -Pattern "\d+(\.\d+)+" -ErrorAction SilentlyContinue
+            # Find pattern in $latestChrome and store the result in the same variable
+            # The updated pattern will now look for a version number with at least one dot
+            $latestChrome = $latestChrome | Select-String -Pattern "\d+(\.\d+)+" -ErrorAction SilentlyContinue
 
-        # If the version number is found, store it in the $targetVersion variable
-        if ($latestChrome -match "\d+(\.\d+)+") {
-            $targetVersion = $matches[0]
-            $detectSummary += "Available Winget version $targetVersion. "
-        } else {
-            # If the version number is not found, throw an error
-            throw "Error: Could not find version number in the output."
+            # If the version number is found, store it in the $targetVersion variable
+            if ($latestChrome -match "\d+(\.\d+)+") {
+                $targetVersion = $matches[0]
+                $detectSummary += "Available Winget version $targetVersion. "
+            } else {
+                # If the version number is not found, throw an error
+                throw "Error: Could not find version number in the output."
+            }
+        }
+        catch {
+            # Handle the error while fetching the latest version
+            Write-Host "Error fetching the latest version of Google Chrome from Winget repository: $_"
+            $detectSummary += "Chrome latest version unknown. "
+            $result = 1
         }
     }
-    catch {
-        # Handle the error while fetching the latest version
-        Write-Host "Error fetching the latest version of Google Chrome from Winget repository: $_"
-        $detectSummary += "Chrome latest version unknown. "
-        $result = 1
+    else {
+        # If no Winget, assume a super mega old version like 50.0.0.0
+        $targetVersion = "50.0.0.0"
     }
 
     # If no important errors occurred while fetching the latest version
@@ -204,77 +262,80 @@ if (($null -ne $chrome) -and ($result -ne 1)) {
                 $detectSummary += "Chrome open/running. "
             }
 
-            # Update Google Chrome using Winget
-            try {
-                # Run the Winget upgrade command and wait for it to complete. Also considering System context execution
-                $tempFile = New-TemporaryFile
-                $processResult = Start-Process -FilePath "$wingetPath" -ArgumentList "upgrade --id ""Google.Chrome"" --exact --force" -NoNewWindow -Wait -RedirectStandardOutput $tempFile.FullName -PassThru
 
-                # Get the exit code and description
-                $exitCode = $processResult.ExitCode
+            if ($wingetPath) {
 
-                # Read the output from the temporary file
-                $installInfo = Get-Content $tempFile.FullName
-                Remove-Item $tempFile.FullName
+                if (Test-Path $gUpdateExe) {
+                    # No Winget found, so update using GoogleUpdate.exe
+                    $result = GUpdate
 
-                # Display the exit code and output
-                Write-Host "Winget Exit Code: $exitCode"
-                Write-Host "Winget Output: $installInfo"
-                
-                # Check if the installation/upgrade was successful
-                if ($exitCode -eq 0) {
-                    Write-Host "Winget Google Chrome installation/upgrade completed successfully."
-                    $detectSummary += "Chrome successful Winget update. "
-                    $result = 0
-                }
-                # If installed version not compatible with update then use Google Update.exe, just for that case.
-                elseif ($exitCode -eq -1978335189) {
-                    Write-Host "Winget error trying to update: Install technology different vs installed version. "
-                    Write-Host "... Now trying update with GoogleUpdate.exe"
-
-                    if (Test-Path $gUpdateExe) {
-                        $detectSummary += "Trying w/GoogleUpdate.exe. "
-
-                        try {
-                            # Run GoogleUpdate.exe with arguments to update Chrome
-                            $processResult = Start-Process -FilePath $gUpdateExe -ArgumentList "/update" -NoNewWindow -Wait -PassThru
-                            
-                            $exitCode = $processResult.ExitCode
-                            Write-Host "GUpdate Exit Code: $exitCode"
-
-                            # Check if sucessful upgrade with Gupdate.
-                            if ($exitCode -eq 0) {
-                                Write-Host "GoogleUpdate.exe upgraded successfully."
-                                $detectSummary += "Gupdate successful. "
-                                $result = 0
-                            }
-                            else {
-                                Write-Host "GoogleUpdate.exe error upgrading."
-                                $detectSummary += "Gupdate error. "
-                                $result = 1
-                            }
-
-                        }
-                        catch {
-                            $detectSummary += "Error trying update with GoogleUpdate.exe. "
-                            $result = 1
-                        }
-                        
+                    if ($result -eq 0) {
+                        $detectSummary += "Gupdate success. "
                     }
                     else {
-                        Write-Host "GoogleUpdate.exe not found. "
+                        $detectSummary += "Gupdate error. "
                     }
-
-                }
-                else {$
-                    $detectSummary += "Error updating Chrome: $installInfo, code: $exitCode. "
-                    $result = 1
                 }
             }
-            catch {
-                Write-Host "Error updating Google Chrome: $_"
-                $detectSummary += "Error updating Chrome $($processResult.ExitCode). "
-                $result = 1
+
+            else {
+            
+                # Update Google Chrome using Winget
+                try {
+                    # Run the Winget upgrade command and wait for it to complete. Also considering System context execution
+                    $tempFile = New-TemporaryFile
+                    $processResult = Start-Process -FilePath "$wingetPath" -ArgumentList "upgrade --id ""Google.Chrome"" --exact --force" -NoNewWindow -Wait -RedirectStandardOutput $tempFile.FullName -PassThru
+
+                    # Get the exit code and description
+                    $exitCode = $processResult.ExitCode
+
+                    # Read the output from the temporary file
+                    $installInfo = Get-Content $tempFile.FullName
+                    Remove-Item $tempFile.FullName
+
+                    # Display the exit code and output
+                    Write-Host "Winget Exit Code: $exitCode"
+                    Write-Host "Winget Output: $installInfo"
+                    
+                    # Check if the installation/upgrade was successful
+                    if ($exitCode -eq 0) {
+                        Write-Host "Winget Google Chrome installation/upgrade completed successfully."
+                        $detectSummary += "Chrome successful Winget update. "
+                        $result = 0
+                    }
+                    # If installed version not compatible with update then use Google Update.exe, just for that case.
+                    elseif ($exitCode -eq -1978335189) {
+                        Write-Host "Winget error trying to update: Install technology different vs installed version. "
+                        Write-Host "... Now trying update with GoogleUpdate.exe"
+
+                        if (Test-Path $gUpdateExe) {
+                            $detectSummary += "Backup plan w/GoogleUpdate.exe. "
+
+                            $result = GUpdate
+
+                            if ($result -eq 0) {
+                                $detectSummary += "Backup Gupdate success. "
+                            }
+                            else {
+                                $detectSummary += "Backup Gupdate error. "
+                            }
+                            
+                        }
+                        else {
+                            Write-Host "GoogleUpdate.exe not found. "
+                        }
+
+                    }
+                    else {$
+                        $detectSummary += "Error updating Chrome: $installInfo, code: $exitCode. "
+                        $result = 1
+                    }
+                }
+                catch {
+                    Write-Host "Error updating Google Chrome: $_"
+                    $detectSummary += "Error updating Chrome $($processResult.ExitCode). "
+                    $result = 1
+                }
             }
         }
         else {
