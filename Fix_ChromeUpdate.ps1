@@ -20,7 +20,7 @@ Write-Host `n`n
 
 #endregion Settings
 
-#region Funcitions
+#region Functions
 
 function Get-ChromeExeDetails {
     $chromePaths = [System.IO.Path]::Combine($env:ProgramW6432, "Google\Chrome\Application\chrome.exe"),
@@ -131,11 +131,14 @@ function Find-GoogleUpdateExe {
 }
 
 function GUpdate {
+    param (
+        [Parameter(Mandatory=$true)]
+        [string]$googleUpdatePath
+    )
 
     try {
         # Run GoogleUpdate.exe with arguments to update Chrome
-        $gUpdateExe = "C:\Path\To\GoogleUpdate.exe"
-        $processResult = Start-Process -FilePath $gUpdateExe -ArgumentList "/c" -NoNewWindow -Wait -PassThru
+        $processResult = Start-Process -FilePath $googleUpdatePath -ArgumentList "/ua /installsource scheduler" -NoNewWindow -Wait -PassThru
         
         $exitCode = $processResult.ExitCode
         Write-Host "GUpdate Exit Code: $exitCode"
@@ -162,6 +165,8 @@ function GUpdate {
 
 #endregion Functions
 
+
+#region Main
 
 # Check if Winget (Windows Package Manager) is installed
 $wingetPath = (Get-Command -Name winget -ErrorAction SilentlyContinue).Source
@@ -241,8 +246,8 @@ if (($null -ne $chrome) -and ($result -ne 1)) {
         }
     }
     else {
-        # If no Winget, assume a super mega old version like 50.0.0.0
-        $targetVersion = "50.0.0.0"
+        # If no Winget, assume we found a super mega new version like 999.0.0.0
+        $targetVersion = "999.0.0.0"
     }
 
     # If no important errors occurred while fetching the latest version
@@ -263,11 +268,11 @@ if (($null -ne $chrome) -and ($result -ne 1)) {
             }
 
 
-            if ($wingetPath) {
+            if (-not $wingetPath) {
 
                 if (Test-Path $gUpdateExe) {
                     # No Winget found, so update using GoogleUpdate.exe
-                    $result = GUpdate
+                    $result = GUpdate -googleUpdatePath $gUpdateExe
 
                     if ($result -eq 0) {
                         $detectSummary += "Gupdate success. "
@@ -311,7 +316,7 @@ if (($null -ne $chrome) -and ($result -ne 1)) {
                         if (Test-Path $gUpdateExe) {
                             $detectSummary += "Backup plan w/GoogleUpdate.exe. "
 
-                            $result = GUpdate
+                            $result = GUpdate -googleUpdatePath $gUpdateExe
 
                             if ($result -eq 0) {
                                 $detectSummary += "Backup Gupdate success. "
@@ -371,3 +376,4 @@ else {
     Exit 0
 }
 
+#endregion Main
