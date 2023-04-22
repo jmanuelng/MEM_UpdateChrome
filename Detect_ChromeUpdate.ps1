@@ -55,10 +55,23 @@ function Find-WingetPath {
 
 
 function Get-ChromeExeDetails {
+    <#
+    .DESCRIPTION
+        Searches for Google Chrome's installation location and display version
+        by checking known file paths and registry paths.
+
+    .EXAMPLE
+        $chromeDetails = Get-ChromeExeDetails
+        Write-Host "Google Chrome is installed at $($chromeDetails.InstallLocation) and the version is $($chromeDetails.DisplayVersion)"
+    #>
+    # Define the known file paths and registry paths for Google Chrome
     $chromePaths = [System.IO.Path]::Combine($env:ProgramW6432, "Google\Chrome\Application\chrome.exe"),
                    [System.IO.Path]::Combine(${env:ProgramFiles(x86)}, "Google\Chrome\Application\chrome.exe")
-    $registryPaths = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Google Chrome", "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Google Chrome"
+    $registryPaths = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Google Chrome",
+                     "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Google Chrome",
+                     "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe"
 
+    # Check the known file paths
     $installedPath = $chromePaths | Where-Object { Test-Path $_ }
     if ($installedPath) {
         $chromeDetails = New-Object PSObject -Property @{
@@ -68,6 +81,7 @@ function Get-ChromeExeDetails {
         return $chromeDetails
     }
 
+    # Check the known registry paths
     $registryInstalled = $registryPaths | Where-Object { Get-ItemProperty -Path $_ -ErrorAction SilentlyContinue }
     if ($registryInstalled) {
         $chromeRegistryPath = $registryInstalled | ForEach-Object { Get-ItemProperty -Path $_ }
@@ -80,10 +94,19 @@ function Get-ChromeExeDetails {
                 if (Test-Path $chromeDetails.InstallLocation) {
                     return $chromeDetails
                 }
+            } elseif ($registryPath.'(Default)') {
+                $chromeDetails = New-Object PSObject -Property @{
+                    InstallLocation = $registryPath.'(Default)'
+                    DisplayVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($registryPath.'(Default)').FileVersion
+                }
+                if (Test-Path $chromeDetails.InstallLocation) {
+                    return $chromeDetails
+                }
             }
         }
     }
 
+    # If Google Chrome is not found, return $null
     return $null
 }
 
@@ -218,7 +241,7 @@ if (($null -ne $chrome) -and ($result -le 0)) {
     $targetVersion = Get-WingetLatestChromeVersion -WingetFilePath $wingetPath
 
     if ($null -ne $targetVersion) {
-        Write-Host "Latest Google Chrome version from Winget repository: $latestChromeVersion"
+        Write-Host "Latest Google Chrome version from Winget repository: $targetVersion"
     } else {
         Write-Host "No Chrome version found using Winget."
         Write-Host "Trying to find latest Google Chrome version using Omaha URL"
@@ -234,6 +257,8 @@ if (($null -ne $chrome) -and ($result -le 0)) {
     }
     
     else {
+        # Display latest Chrome version found
+        Write-Host "Lastest Chrome version: $targetVersion."
         # Compare the installed version with the latest version
         $comparisonResult = [version]$installedVersion -lt [version]$targetVersion
 

@@ -7,6 +7,10 @@
         Checks for the latest version of Google Chrome available in the Winget repository,
         compares it with the currently installed version, and updates Google Chrome if a newer version is available.
 
+    .NOTES
+        To Do:
+        If Chrome running, show toast message to user, wait 3 minutes, restart Chrome.
+
 #>
 
 
@@ -22,11 +26,56 @@ Write-Host `n`n
 
 #region Functions
 
+function Find-WingetPath {
+    # Define the possible locations for winget.exe
+    $possibleLocations = @(
+        "${env:ProgramFiles}\WindowsApps\Microsoft.DesktopAppInstaller_*\app\winget.exe",
+        "${env:ProgramFiles(x86)}\WindowsApps\Microsoft.DesktopAppInstaller_*\app\winget.exe",
+        "${env:LOCALAPPDATA}\Microsoft\WindowsApps\winget.exe",
+        "${env:USERPROFILE}\AppData\Local\Microsoft\WindowsApps\winget.exe"
+    )
+
+    # Try to find winget.exe in the possible locations
+    foreach ($location in $possibleLocations) {
+        try {
+            # Get the items that match the current location
+            $items = Get-ChildItem -Path $location -ErrorAction Stop
+
+            # If an item is found, return the full path of winget.exe
+            if ($items) {
+                $wingetPath = $items[0].FullName
+                return $wingetPath
+            }
+        }
+        # If an error occurs, continue searching in the next location
+        catch {
+            Write-Warning "Unable to search for winget.exe in the following location: $location"
+        }
+    }
+
+    # If winget.exe is not found in any location, display an error message and return $null
+    Write-Error "Winget not found in any of the checked locations."
+    return $null
+}
+
 function Get-ChromeExeDetails {
+    <#
+    .DESCRIPTION
+        Searches for Google Chrome's installation location and display version
+        by checking known file paths and registry paths.
+
+    .EXAMPLE
+        $chromeDetails = Get-ChromeExeDetails
+        Write-Host "Google Chrome is installed at $($chromeDetails.InstallLocation) and the version is $($chromeDetails.DisplayVersion)"
+    #>    
+    # Define the known file paths and registry paths for Google Chrome
     $chromePaths = [System.IO.Path]::Combine($env:ProgramW6432, "Google\Chrome\Application\chrome.exe"),
                    [System.IO.Path]::Combine(${env:ProgramFiles(x86)}, "Google\Chrome\Application\chrome.exe")
-    $registryPaths = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Google Chrome", "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Google Chrome"
+    $registryPaths = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Google Chrome",
+                     "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Google Chrome",
+                     "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe"
 
+    # Check the known file paths
     $installedPath = $chromePaths | Where-Object { Test-Path $_ }
     if ($installedPath) {
         $chromeDetails = New-Object PSObject -Property @{
@@ -36,6 +85,7 @@ function Get-ChromeExeDetails {
         return $chromeDetails
     }
 
+    # Check the known registry paths
     $registryInstalled = $registryPaths | Where-Object { Get-ItemProperty -Path $_ -ErrorAction SilentlyContinue }
     if ($registryInstalled) {
         $chromeRegistryPath = $registryInstalled | ForEach-Object { Get-ItemProperty -Path $_ }
@@ -48,10 +98,19 @@ function Get-ChromeExeDetails {
                 if (Test-Path $chromeDetails.InstallLocation) {
                     return $chromeDetails
                 }
+            } elseif ($registryPath.'(Default)') {
+                $chromeDetails = New-Object PSObject -Property @{
+                    InstallLocation = $registryPath.'(Default)'
+                    DisplayVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($registryPath.'(Default)').FileVersion
+                }
+                if (Test-Path $chromeDetails.InstallLocation) {
+                    return $chromeDetails
+                }
             }
         }
     }
 
+    # If Google Chrome is not found, return $null
     return $null
 }
 
@@ -248,6 +307,59 @@ function GUpdate {
     
 }
 
+function RestartChrome {
+    [CmdletBinding()]
+    param (
+        [int]$WaitSeconds = 10,
+        [string]$ChromePath
+    )
+
+    try {
+        # If ChromePath is not provided or invalid, attempt to find it
+        if (-not $ChromePath -or -not (Test-Path $ChromePath)) {
+            Write-Host "Finding Google Chrome path..."
+            $ChromePath = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe').'(Default)'
+            if (-not $ChromePath -or -not (Test-Path $ChromePath)) {
+                throw "Google Chrome path not found. Please provide a valid ChromePath or install Google Chrome."
+            }
+        }
+
+        # Get the running Google Chrome process
+        $chromeProcess = Get-Process -Name "chrome" -ErrorAction Stop
+
+        # Check if Google Chrome is open
+        if ($chromeProcess) {
+            Write-Host "Google Chrome is open. Waiting $WaitSeconds seconds before restarting..."
+
+            # Wait for the specified amount of time
+            Start-Sleep -Seconds $WaitSeconds
+
+            # Close and restart Google Chrome
+            Stop-Process -Name "chrome" -Force
+
+            # Wait 3 seconds before strating Chrome
+            Start-Sleep -Seconds 3
+
+            # Starting Chrome
+            Start-Process -FilePath $ChromePath
+
+            Write-Host "Google Chrome has been restarted."
+            return 0
+        } else {
+            Write-Warning "Google Chrome is not open. Please launch the browser before running this script."
+            return 1
+        }
+    } catch {
+        if ($_.Exception.GetType().Name -eq "ProcessCommandException") {
+            Write-Error "Google Chrome is not open. Please launch the browser before running this script."
+            return -1
+        } else {
+            Write-Error "An error occurred: $($_.Exception.Message)"
+            return 1
+        }
+    }
+}
+
 #endregion Functions
 
 
@@ -297,7 +409,7 @@ if (($null -ne $chrome) -and ($result -ne 1)) {
             # Get the latest version of Google Chrome from Winget repository
             $targetVersion = Get-WingetLatestChromeVersion -WingetFilePath $wingetPath
             if ($null -ne $targetVersion) {
-                Write-Host "Latest Google Chrome version from Winget repository: $latestChromeVersion"
+                Write-Host "Latest Google Chrome version from Winget repository: $targetVersion"
             } 
             else {
                 Write-Host "No Chrome version found using Winget."
@@ -344,7 +456,8 @@ if (($null -ne $chrome) -and ($result -ne 1)) {
 
     # If no important errors occurred while fetching the latest version
     if ($result -ne 1) {
-
+        # Display latest Chrome version found
+        Write-Host "Lastest Chrome version: $targetVersion."
         # Compare the installed version with the latest version
         $comparisonResult = [version]$installedVersion -lt [version]$targetVersion
 
