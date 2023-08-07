@@ -1,7 +1,7 @@
 # MEM_UpdateChrome
 <h1>Keep Google Chrome Up-to-Date in Your Client's Environment using Microsoft Intune's Proactive Remediation</h1>
 
-<p>Can be used if you're in a hurry to upgrade Google Chrome on an environment. I've used int in scenarioes where Chrome continues to be flagged as a top recommendation in Microsoft Defender for Endpoint, despite having update policies in place. This scriptsw help address this issue. It leverages Winget and GoogleUpdate.exe to ensure Google Chrome installation is always up-to-date. This script is to be used as Proactive Remediation via Microsoft Intune.</p>
+<p>Can be used if you're in a hurry to upgrade Google Chrome on an environment. I've used it in scenarios where Chrome continues to be flagged as a top recommendation in Microsoft Defender for Endpoint, despite having update policies in place. This script helps address this issue. It leverages Winget and GoogleUpdate.exe to ensure Google Chrome installation is always up to date. This script is to be used as Proactive Remediation via Microsoft Intune.</p>
 
 <h2>Key Features</h2>
     <ol>
